@@ -1,43 +1,75 @@
-// AudioPlayer.js
+// src/AudioPlayer.js
 import React, { useState, useEffect, useRef } from 'react';
+import { openDB } from 'idb';
 
-const AudioPlayer = ({ playlist }) => {
+const AudioPlayer = () => {
+  const [playlist, setPlaylist] = useState([]);
   const [currentTrackIndex, setCurrentTrackIndex] = useState(0);
-  const [audioRef, setAudioRef] = useState(new Audio());
   const [isPlaying, setIsPlaying] = useState(false);
-
-  const loadAudio = (index) => {
-    const audio = new Audio(playlist[index]);
-    audio.currentTime = localStorage.getItem('lastPlayedPosition') || 0;
-    setAudioRef(audio);
-  };
+  const audioRef = useRef(new Audio());
 
   useEffect(() => {
-    loadAudio(currentTrackIndex);
-  }, [currentTrackIndex, playlist]);
+    const init = async () => {
+      const db = await openDB('audioFiles', 1, {
+        upgrade(db) {
+          db.createObjectStore('files');
+        },
+      });
+
+      const savedPlaylist = await db.getAll('files');
+      setPlaylist(savedPlaylist.map((file) => file.name));
+
+      const lastPlayedIndex = Number(localStorage.getItem('lastPlayedIndex')) || 0;
+      setCurrentTrackIndex(lastPlayedIndex);
+    };
+
+    init();
+  }, []);
 
   useEffect(() => {
-    if (isPlaying) {
-      audioRef.play();
-    } else {
-      audioRef.pause();
-    }
-  }, [isPlaying, audioRef]);
+    const loadAudio = async () => {
+      const db = await openDB('audioFiles', 1);
+      const file = await db.get('files', currentTrackIndex);
+
+      if (file) {
+        const blob = new Blob([file.data], { type: 'audio/mp3' });
+        audioRef.current.src = URL.createObjectURL(blob);
+        audioRef.current.currentTime = localStorage.getItem('lastPlayedPosition') || 0;
+
+        if (isPlaying) {
+          audioRef.current.play().catch((error) => {
+            console.error('Error playing audio:', error);
+            setIsPlaying(false);
+          });
+        }
+      }
+    };
+
+    loadAudio();
+  }, [currentTrackIndex, isPlaying]);
 
   useEffect(() => {
     const savePlaybackPosition = () => {
       localStorage.setItem('lastPlayedIndex', currentTrackIndex);
-      localStorage.setItem('lastPlayedPosition', audioRef.currentTime);
+      localStorage.setItem('lastPlayedPosition', audioRef.current.currentTime);
     };
 
-    audioRef.addEventListener('timeupdate', savePlaybackPosition);
+    audioRef.current.addEventListener('timeupdate', savePlaybackPosition);
 
     return () => {
-      audioRef.removeEventListener('timeupdate', savePlaybackPosition);
+      audioRef.current.removeEventListener('timeupdate', savePlaybackPosition);
     };
-  }, [currentTrackIndex, audioRef]);
+  }, [currentTrackIndex]);
 
   const playPauseHandler = () => {
+    if (isPlaying) {
+      audioRef.current.pause();
+    } else {
+      audioRef.current.play().catch((error) => {
+        console.error('Error playing audio:', error);
+        setIsPlaying(false);
+      });
+    }
     setIsPlaying(!isPlaying);
   };
 
@@ -50,17 +82,33 @@ const AudioPlayer = ({ playlist }) => {
   };
 
   const timeUpdateHandler = () => {
-    localStorage.setItem('lastPlayedPosition', audioRef.currentTime);
+    localStorage.setItem('lastPlayedPosition', audioRef.current.currentTime);
   };
 
   const endedHandler = () => {
     nextTrackHandler();
   };
 
-  // Ensure that the audioRef is updated when the playlist changes
-  useEffect(() => {
-    setAudioRef(new Audio());
-  }, [playlist]);
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const fileData = await file.arrayBuffer();
+
+      const db = await openDB('audioFiles', 1);
+      const transaction = db.transaction('files', 'readwrite');
+      const store = transaction.objectStore('files');
+
+      try {
+        await store.clear();
+        await store.add({ data: fileData }, 0);
+      } catch (error) {
+        console.error('Failed to clear IndexedDB store:', error);
+      }
+
+      setPlaylist([file.name]);
+      setCurrentTrackIndex(0);
+    }
+  };
 
   return (
     <div>
@@ -72,6 +120,11 @@ const AudioPlayer = ({ playlist }) => {
       />
       <button onClick={playPauseHandler}>{isPlaying ? 'Pause' : 'Play'}</button>
       <button onClick={nextTrackHandler}>Next</button>
+      <input
+        type="file"
+        accept="audio/*"
+        onChange={(e) => handleFileUpload(e)}
+      />
     </div>
   );
 };
