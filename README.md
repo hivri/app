@@ -1,4 +1,4 @@
-Create a React app where:
+Create a React app where
 - A user can upload audio files (e.g. mp3)
 - Store the audio file using built-in Browser APIs
 - Show a playlist and now playing view 
