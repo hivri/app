@@ -57,6 +57,11 @@ const AudioPlayer = ({ playlist }) => {
     nextTrackHandler();
   };
 
+  // Ensure that the audioRef is updated when the playlist changes
+  useEffect(() => {
+    setAudioRef(new Audio());
+  }, [playlist]);
+
   return (
     <div>
       <h2>Now Playing: {playlist[currentTrackIndex]}</h2>
